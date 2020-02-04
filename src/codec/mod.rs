@@ -102,8 +102,9 @@ impl From<Response> for Bytes {
                     data.put_u16_be(r);
                 }
             }
-            WriteSingleCoil(address) => {
+            WriteSingleCoil(address, state) => {
                 data.put_u16_be(address);
+                data.put_u16_be(bool_to_coil(state));
             }
             WriteMultipleCoils(address, quantity) | WriteMultipleRegisters(address, quantity) => {
                 data.put_u16_be(address);
@@ -243,7 +244,7 @@ impl TryFrom<Bytes> for Response {
                 let quantity = u16::from(byte_count * 8);
                 ReadDiscreteInputs(unpack_coils(x, quantity))
             }
-            0x05 => WriteSingleCoil(rdr.read_u16::<BigEndian>()?),
+            0x05 => WriteSingleCoil(rdr.read_u16::<BigEndian>()?, coil_to_bool(rdr.read_u16::<BigEndian>()?)?),
             0x0F => WriteMultipleCoils(rdr.read_u16::<BigEndian>()?, rdr.read_u16::<BigEndian>()?),
             0x04 => {
                 let byte_count = rdr.read_u8()?;
@@ -401,7 +402,7 @@ fn rsp_to_fn_code(rsp: &Response) -> u8 {
     match *rsp {
         ReadCoils(_) => 0x01,
         ReadDiscreteInputs(_) => 0x02,
-        WriteSingleCoil(_) => 0x05,
+        WriteSingleCoil(_, _) => 0x05,
         WriteMultipleCoils(_, _) => 0x0F,
         ReadInputRegisters(_) => 0x04,
         ReadHoldingRegisters(_) => 0x03,
@@ -433,7 +434,7 @@ fn response_byte_count(rsp: &Response) -> usize {
     use crate::frame::Response::*;
     match *rsp {
         ReadCoils(ref coils) | ReadDiscreteInputs(ref coils) => 2 + packed_coils_len(coils.len()),
-        WriteSingleCoil(_) => 3,
+        WriteSingleCoil(_, _) |
         WriteMultipleCoils(_, _) | WriteMultipleRegisters(_, _) | WriteSingleRegister(_, _) => 5,
         ReadInputRegisters(ref data)
         | ReadHoldingRegisters(ref data)
@@ -507,7 +508,7 @@ mod tests {
         use crate::frame::Response::*;
         assert_eq!(rsp_to_fn_code(&ReadCoils(vec![])), 1);
         assert_eq!(rsp_to_fn_code(&ReadDiscreteInputs(vec![])), 2);
-        assert_eq!(rsp_to_fn_code(&WriteSingleCoil(0x0)), 5);
+        assert_eq!(rsp_to_fn_code(&WriteSingleCoil(0x0, false)), 5);
         assert_eq!(rsp_to_fn_code(&WriteMultipleCoils(0x0, 0x0)), 0x0F);
         assert_eq!(rsp_to_fn_code(&ReadInputRegisters(vec![])), 0x04);
         assert_eq!(rsp_to_fn_code(&ReadHoldingRegisters(vec![])), 0x03);
@@ -866,10 +867,12 @@ mod tests {
 
         #[test]
         fn write_single_coil() {
-            let bytes: Bytes = Response::WriteSingleCoil(0x33).into();
+            let bytes: Bytes = Response::WriteSingleCoil(0x33, true).into();
             assert_eq!(bytes[0], 5);
             assert_eq!(bytes[1], 0x00);
             assert_eq!(bytes[2], 0x33);
+            assert_eq!(bytes[3], 0xFF);
+            assert_eq!(bytes[4], 0x00);
         }
 
         #[test]
@@ -974,9 +977,9 @@ mod tests {
 
         #[test]
         fn write_single_coil() {
-            let bytes = Bytes::from(vec![5, 0x00, 0x33]);
+            let bytes = Bytes::from(vec![5, 0x00, 0x33, 0xFF, 0x00]);
             let rsp = Response::try_from(bytes).unwrap();
-            assert_eq!(rsp, Response::WriteSingleCoil(0x33));
+            assert_eq!(rsp, Response::WriteSingleCoil(0x33, true));
         }
 
         #[test]
