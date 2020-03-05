@@ -38,7 +38,13 @@ where
                 let pdu = rsp.into();
                 Ok(Self::Response { hdr, pdu })
             }
-            Err(e) => Err(e.into()),
+            Err(e) => {
+                // If error is an exception, then Ok()
+                if e.kind() == std::io::ErrorKind::InvalidInput {
+
+                }
+                Err(e.into())
+            }
         }))
     }
 }
