@@ -5,6 +5,7 @@ pub mod rtu;
 pub mod tcp;
 
 use std::{error, fmt};
+use std::io::{Error, ErrorKind};
 
 /// A Modbus function code is represented by an unsigned 8 bit integer.
 pub(crate) type FunctionCode = u8;
@@ -74,6 +75,57 @@ pub enum Response {
     Custom(FunctionCode, Vec<u8>),
 }
 
+#[derive(Debug)]
+pub enum MbError {
+    Exception(Exception),
+    Error(Error),
+}
+
+impl fmt::Display for MbError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            MbError::Exception(ref exp) =>
+                write!(f, "Modbus exception: {}", exp),
+            // This is a wrapper, so defer to the underlying types' implementation of `fmt`.
+            MbError::Error(ref e) => e.fmt(f),
+        }
+    }
+}
+
+impl error::Error for MbError {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match *self {
+            MbError::Exception(ref _exp) => None,
+            MbError::Error(ref e) => Some(e),
+        }
+    }
+}
+
+impl From<Error> for MbError {
+    fn from(err: Error) -> MbError {
+        MbError::Error(err)
+    }
+}
+
+impl From<Exception> for MbError {
+    fn from(exp: Exception) -> MbError {
+        MbError::Exception(exp)
+    }
+}
+
+// Conversion from MbError to std::io::Error is need by tokio_proto
+impl From<MbError> for Error {
+    fn from(err: MbError) -> Error {
+        match err {
+            MbError::Exception(exp) => {
+                Error::new(ErrorKind::Other, exp)
+            }
+            MbError::Error(e) => e,
+        }
+    }
+}
+
+
 /// A server (slave) exception.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Exception {
@@ -108,7 +160,7 @@ impl Exception {
 
 /// A server (slave) exception response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ExceptionResponse {
+pub(crate) struct ExceptionResponse {
     pub function: FunctionCode,
     pub exception: Exception,
 }

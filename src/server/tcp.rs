@@ -1,8 +1,8 @@
 use crate::frame::{tcp::*, *};
 use crate::proto::tcp::Proto;
+use crate::codec::req_to_fn_code;
 
 use futures::Future;
-use std::io::Error;
 use std::net::SocketAddr;
 use tokio_proto::TcpServer;
 use tokio_service::{NewService, Service};
@@ -22,16 +22,17 @@ where
     S: Service + Send + Sync + 'static,
     S::Request: From<Request>,
     S::Response: Into<Response>,
-    S::Error: Into<Error>,
+    S::Error: Into<MbError>,
 {
     type Request = RequestAdu;
     type Response = ResponseAdu;
-    type Error = Error;
+    type Error = MbError;
     type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
     fn call(&self, adu: Self::Request) -> Self::Future {
         let Self::Request { hdr, pdu, .. } = adu;
         let req: Request = pdu.into();
+        let req_fn_code = req_to_fn_code(&req);
         Box::new(self.service.call(req.into()).then(move |rsp| match rsp {
             Ok(rsp) => {
                 let rsp: Response = rsp.into();
@@ -39,13 +40,17 @@ where
                 Ok(Self::Response { hdr, pdu })
             }
             Err(e) => {
-                // If error is an exception, then Ok()
-                if e.kind() == std::io::ErrorKind::InvalidInput {
-
+                let mbe: MbError = e.into();
+                if let MbError::Exception(eee) = mbe {
+                    let er = ExceptionResponse { function: req_fn_code, exception: eee};
+                    let pdu = er.into();
+                    Ok(Self::Response { hdr, pdu })
+                } else {
+                    Err(mbe.into())
                 }
-                Err(e.into())
-            }
-        }))
+} 
+            
+    }))
     }
 }
 
@@ -76,7 +81,7 @@ impl Server {
         S: NewService + Send + Sync + 'static,
         S::Request: From<Request>,
         S::Response: Into<Response>,
-        S::Error: Into<Error>,
+        S::Error: Into<MbError>,
         S::Instance: Send + Sync + 'static,
     {
         let mut server = TcpServer::new(Proto, self.socket_addr);
@@ -102,7 +107,7 @@ mod tests {
         impl Service for DummyService {
             type Request = Request;
             type Response = Response;
-            type Error = Error;
+            type Error = MbError;
             type Future = Box<dyn Future<Item = Self::Response, Error = Self::Error>>;
 
             fn call(&self, _: Self::Request) -> Self::Future {

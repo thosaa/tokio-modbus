@@ -14,18 +14,22 @@ struct MbServer;
 impl Service for MbServer {
     type Request = Request;
     type Response = Response;
-    type Error = std::io::Error;
+    type Error = MbError;
     type Future = FutureResult<Self::Response, Self::Error>;
 
     fn call(&self, req: Self::Request) -> Self::Future {
         match req {
-            Request::ReadInputRegisters(_addr, cnt) => {
-                let mut registers = vec![0; cnt as usize];
-                registers[2] = 0x77;
-                let rsp = Response::ReadInputRegisters(registers);
-                future::ok(rsp)
+            Request::ReadInputRegisters(addr, cnt) => {
+                if addr > 100 {
+                    future::err(Exception::IllegalDataAddress.into())
+                } else {
+                    let mut registers = vec![0; cnt as usize];
+                    registers[2] = 0x77;
+                    let rsp = Response::ReadInputRegisters(registers);
+                    future::ok(rsp)
+                }
             }
-            _ => unimplemented!(),
+            _ => future::err(Exception::IllegalFunction.into())
         }
     }
 }

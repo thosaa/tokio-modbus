@@ -380,7 +380,7 @@ fn unpack_coils(bytes: &[u8], count: u16) -> Vec<Coil> {
     res
 }
 
-fn req_to_fn_code(req: &Request) -> u8 {
+pub (crate) fn req_to_fn_code(req: &Request) -> u8 {
     use crate::frame::Request::*;
     match *req {
         ReadCoils(_, _) => 0x01,
